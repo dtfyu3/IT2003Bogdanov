@@ -1,29 +1,30 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
+import 'package:lab8_1/new.dart';
+import 'package:html/parser.dart';
 
-void main() async{
-  // runApp(const MyApp());
-  // fun();
-  final username = 'bms20202543';
-  final password = 'Ur7xEJg5';
-  final url = Uri.parse('https://kubsau.ru/api/getNews.php?key=6df2f5d38d4e16b5a923a6d4873e2ee295d0ac90');
-  
-  final credentials = '$username:$password';
-  final encodedCredentials = base64.encode(utf8.encode(credentials));
-  
-  final response = await http.get(url, headers: {
-    'Authorization': 'Basic $encodedCredentials'
-  });
-  
-  if (response.statusCode == 200) {
-    print(response.body);
-  } else {
-    print('Request failed with status: ${response.statusCode}.');
-  }
+Future<List<New>> fetchNews(http.Client client) async {
+  final response = await client.get(Uri.parse(
+      'https://kubsau.ru/api/getNews.php?key=6df2f5d38d4e16b5a923a6d4873e2ee295d0ac90'));
+      Bidi.stripHtmlIfNeeded(response.body);
+      String html = parse(response.body).body!.text;
+  return compute(parseNews, html);
+}
+
+
+List<New> parseNews(String responseBody) {
+  final parsed = jsonDecode(responseBody).cast<Map<String, dynamic>>();
+  return parsed.map<New>((json) => New.fromJson(json)).toList();
+}
+
+void main() async {
+  HttpOverrides.global = MyHttpOverrides();
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -31,37 +32,125 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const appTitle = 'Лента новостей';
     return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(
-          title: Text('Лента новостей'),
-          backgroundColor: Colors.green,
-        ),
-        body: Card(
-          child: Text('data'),
-        ),
-      ),
+      title: appTitle,
+      home: MyHomePage(title: appTitle),
     );
   }
 }
 
-void fun () {
-  HttpOverrides.global = MyHttpOverrides();
-  http.get(Uri.parse('http://kubsau.ru/api/getNews')).then((response) {
-  print("Response status: ${response.statusCode}");
-  final body = Bidi.stripHtmlIfNeeded(response.body);
-  print("Response body: $body");
-}).catchError((error){
-  print("Error: $error");
-});
+class MyHomePage extends StatelessWidget {
+  const MyHomePage({Key? key, required this.title}) : super(key: key);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.green,
+        title: Text(title),
+      ),
+      body: FutureBuilder<List<New>>(
+          future: fetchNews(http.Client()),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return const Center(
+                child: Text('Ошибка'),
+              );
+            } else if (snapshot.hasData) {
+              return NewsList(news: snapshot.data!);
+            } else {
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            }
+          }),
+    );
+  }
 }
+
+class NewsList extends StatelessWidget {
+  const NewsList({Key? key, required this.news}) : super(key: key);
+
+  final List<New> news;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.start,
+      children: [
+        Expanded(
+          child: ListView.builder(
+            itemCount: news.length,
+            itemBuilder: (context, index) {
+              return Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(15, 15, 15, 0),
+                      child: Card(
+                        clipBehavior: Clip.antiAlias,
+                        child: Column(children: [
+                          Image.network(news[index].icon),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    '${news[index].date}',
+                                    style: TextStyle(color: Colors.grey),
+                                    textAlign: TextAlign.start,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    '${news[index].title}',
+                                    style: TextStyle(fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Divider(),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Row(
+                              children: [
+                                Flexible(child: Text('${news[index].text}',textAlign: TextAlign.start,)),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: 10),
+                        ]),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class MyHttpOverrides extends HttpOverrides {
-  
   @override
   HttpClient createHttpClient(SecurityContext? context) {
     return super.createHttpClient(context)
-      ..badCertificateCallback = 
-        (X509Certificate cert, String host, int port) =>true ;
+      ..badCertificateCallback =
+          (X509Certificate cert, String host, int port) => true;
   }
-  
 }
